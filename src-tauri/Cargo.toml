@@ -25,6 +25,7 @@ serde_json = "1"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 psd = "0.3"
 image = { version = "0.25", features = ["tiff", "png", "jpeg"] }
 base64 = "0.22"

@@ -44,6 +44,15 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: '検版ビューワー ${{ github.ref_name }}'
-          releaseBody: 'インストーラーをダウンロードしてください。'
+          releaseBody: |
+            ## 検版ビューワー ${{ github.ref_name }}
+
+            ### インストール方法
+            1. `検版ビューアー_x.x.x_x64-setup.exe` をダウンロード
+            2. インストーラーを実行してください
+
+            既存のバージョンがインストールされている場合は、自動更新機能でもアップデートできます。
           releaseDraft: false
           prerelease: false
+          updaterJsonPreferNsis: true
+          includeUpdaterJson: true

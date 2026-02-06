@@ -4,7 +4,7 @@ import {
   FolderOpen, ChevronUp, ChevronDown, HelpCircle,
   Layers, FileDiff, CheckCircle, AlertTriangle, Upload, Loader2,
   Settings, Target, HardDrive, Columns2, Eye, EyeOff, FileText, Link2, Unlink2, Edit3, RefreshCw,
-  PanelLeftClose, PanelLeft, FileImage, Palette, Shuffle, Maximize2, BookOpen
+  PanelLeftClose, PanelLeft, FileImage, Palette, Shuffle, Maximize2, BookOpen, Download, X
 } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import UTIF from 'utif';
@@ -813,8 +813,14 @@ export default function MangaDiffDetector() {
   const [instructionButtonsHidden, setInstructionButtonsHidden] = useState(false); // 指示エディタボタン非表示状態
 
   // ============== 自動更新 ==============
-  const [updateAvailable, setUpdateAvailable] = useState<{ version: string; notes?: string } | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateDialogState, setUpdateDialogState] = useState<
+    | { type: 'confirm'; version: string; notes?: string }
+    | { type: 'downloading' }
+    | { type: 'complete' }
+    | { type: 'error'; message: string }
+    | null
+  >(null);
+  const pendingUpdateRef = useRef<Awaited<ReturnType<typeof check>> | null>(null);
 
   const processingRef = useRef(false);
   const compareModeRef = useRef(compareMode); // モード変更を追跡
@@ -857,13 +863,15 @@ export default function MangaDiffDetector() {
     pdfCache.clear();
   }, [compareMode]);
 
-  // 起動時に更新チェック
+  // 起動時に更新チェック（2秒遅延でアプリ初期化を待つ）
   useEffect(() => {
-    const checkForUpdates = async () => {
+    const timer = setTimeout(async () => {
       try {
         const update = await check();
         if (update) {
-          setUpdateAvailable({
+          pendingUpdateRef.current = update;
+          setUpdateDialogState({
+            type: 'confirm',
             version: update.version,
             notes: update.body || undefined
           });
@@ -871,23 +879,23 @@ export default function MangaDiffDetector() {
       } catch (e) {
         console.log('Update check failed:', e);
       }
-    };
-    checkForUpdates();
+    }, 2000);
+    return () => clearTimeout(timer);
   }, []);
 
   // 更新を実行
   const handleUpdate = async () => {
-    if (!updateAvailable) return;
-    setIsUpdating(true);
+    if (!pendingUpdateRef.current) return;
+    setUpdateDialogState({ type: 'downloading' });
     try {
-      const update = await check();
-      if (update) {
-        await update.downloadAndInstall();
+      await pendingUpdateRef.current.downloadAndInstall();
+      setUpdateDialogState({ type: 'complete' });
+      setTimeout(async () => {
         await relaunch();
-      }
+      }, 1500);
     } catch (e) {
       console.error('Update failed:', e);
-      setIsUpdating(false);
+      setUpdateDialogState({ type: 'error', message: String(e) });
     }
   };
 
@@ -3571,37 +3579,87 @@ export default function MangaDiffDetector() {
         </div>
       )}
 
-      {/* 更新通知 */}
-      {updateAvailable && (
-        <div className="fixed top-4 right-4 bg-blue-600 rounded-lg p-4 shadow-xl border border-blue-400 z-50 max-w-sm">
-          <div className="flex items-start gap-3">
-            <RefreshCw className="text-white mt-0.5 flex-shrink-0" size={20} />
-            <div className="flex-1">
-              <p className="font-semibold mb-1">新しいバージョンがあります</p>
-              <p className="text-sm text-blue-100 mb-3">v{updateAvailable.version}</p>
-              <div className="flex gap-2">
+      {/* 更新ダイアログ */}
+      {updateDialogState && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-[10000]"
+          style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className="rounded-2xl p-8 text-center shadow-2xl max-w-sm w-full mx-4"
+            style={{
+              background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 100%)',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            {/* 確認ダイアログ */}
+            {updateDialogState.type === 'confirm' && (
+              <>
+                <Download size={48} className="mx-auto mb-4 text-blue-400" />
+                <h3 className="text-lg font-semibold text-white mb-3">新しいバージョンがあります</h3>
+                <p className="text-sm text-gray-300 mb-1">
+                  v{updateDialogState.version} が利用可能です。
+                </p>
+                <p className="text-sm text-gray-400 mb-6">今すぐアップデートしますか？</p>
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={() => setUpdateDialogState(null)}
+                    className="px-6 py-2.5 rounded-lg text-sm text-gray-400 hover:text-gray-200 transition-all"
+                    style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+                  >
+                    後で
+                  </button>
+                  <button
+                    onClick={handleUpdate}
+                    className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg"
+                    style={{
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
+                    アップデート
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ダウンロード中 */}
+            {updateDialogState.type === 'downloading' && (
+              <>
+                <RefreshCw size={48} className="mx-auto mb-4 text-blue-400 animate-spin" />
+                <h3 className="text-lg font-semibold text-white mb-3">アップデート中...</h3>
+                <p className="text-sm text-gray-300">
+                  ダウンロードしています。<br />しばらくお待ちください。
+                </p>
+              </>
+            )}
+
+            {/* 完了 */}
+            {updateDialogState.type === 'complete' && (
+              <>
+                <CheckCircle size={48} className="mx-auto mb-4 text-green-400" />
+                <h3 className="text-lg font-semibold text-white mb-3">インストール完了</h3>
+                <p className="text-sm text-gray-300">アプリを再起動します...</p>
+              </>
+            )}
+
+            {/* エラー */}
+            {updateDialogState.type === 'error' && (
+              <>
+                <AlertTriangle size={48} className="mx-auto mb-4 text-red-400" />
+                <h3 className="text-lg font-semibold text-white mb-3">アップデート失敗</h3>
+                <p className="text-sm text-gray-400 mb-6">{updateDialogState.message}</p>
                 <button
-                  onClick={handleUpdate}
-                  disabled={isUpdating}
-                  className="px-3 py-1.5 bg-white text-blue-600 rounded font-medium text-sm hover:bg-blue-50 disabled:opacity-50 flex items-center gap-2"
+                  onClick={() => setUpdateDialogState(null)}
+                  className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-all"
+                  style={{
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                  }}
                 >
-                  {isUpdating ? (
-                    <>
-                      <Loader2 className="animate-spin" size={14} />
-                      更新中...
-                    </>
-                  ) : (
-                    '今すぐ更新'
-                  )}
+                  閉じる
                 </button>
-                <button
-                  onClick={() => setUpdateAvailable(null)}
-                  className="px-3 py-1.5 bg-blue-500 text-white rounded text-sm hover:bg-blue-400"
-                >
-                  後で
-                </button>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}
