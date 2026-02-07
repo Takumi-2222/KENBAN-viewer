@@ -829,8 +829,15 @@ export default function MangaDiffDetector() {
 
   // モード切り替え関数（即座にペアをクリアして誤った処理を防ぐ）
   const handleModeChange = useCallback((newMode: 'tiff-tiff' | 'psd-psd' | 'pdf-pdf' | 'psd-tiff') => {
-    // 現在のモードと同じなら何もしない
-    if (newMode === compareMode) return;
+    // 現在のモードと同じ場合
+    if (newMode === compareMode) {
+      // 初期モード選択画面からの場合は画面を閉じる
+      if (initialModeSelect) {
+        setInitialModeSelect(false);
+        setSidebarCollapsed(false);
+      }
+      return;
+    }
     // まず処理フラグをリセットして進行中の処理を止める
     processingRef.current = false;
     // ペアとファイルを即座にクリア（自動処理が走らないように）
@@ -841,7 +848,7 @@ export default function MangaDiffDetector() {
     setCompareMode(newMode);
     setInitialModeSelect(false);
     setSidebarCollapsed(false);
-  }, [compareMode]);
+  }, [compareMode, initialModeSelect]);
 
   // モード変更時にリセット
   useEffect(() => {
