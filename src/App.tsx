@@ -4240,29 +4240,29 @@ export default function MangaDiffDetector() {
                         {compareMode === 'psd-tiff' && (
                           <div
                             ref={dropZoneJsonRef}
-                            className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'json' ? 'border-orange-500 bg-orange-900/30' : cropBounds ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`}
+                            className={`flex-1 border-2 border-dashed rounded-2xl py-40 px-16 min-h-[600px] flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'json' ? 'border-orange-500 bg-orange-900/30' : cropBounds ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`}
                             onDragOver={handleDragOver}
                             onDragEnter={handleDragEnter('json')}
                             onDragLeave={handleDragLeave}
                             onDrop={handleDrop('json')}
                             onClick={() => setIsGDriveBrowserOpen(true)}
                           >
-                            <HardDrive size={28} className={`mb-2 ${dragOverSide === 'json' ? 'text-orange-400' : cropBounds ? 'text-green-400' : 'text-neutral-600'}`} />
+                            <HardDrive size={36} className={`mb-3 ${dragOverSide === 'json' ? 'text-orange-400' : cropBounds ? 'text-green-400' : 'text-neutral-600'}`} />
                             <p className={`text-sm font-medium ${dragOverSide === 'json' ? 'text-orange-300' : cropBounds ? 'text-green-300' : 'text-neutral-400'}`}>Gドライブ</p>
                             <p className="text-xs text-neutral-600 mt-1">.json</p>
                             {cropBounds && <p className="text-xs text-green-400 mt-2">OK</p>}
                           </div>
                         )}
 
-                        <div ref={dropZoneARef} className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'A' ? 'border-blue-500 bg-blue-900/30' : filesA.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('A')} onDragLeave={handleDragLeave} onDrop={handleDrop('A')} onClick={handleFilesAUpload}>
-                          <FolderOpen size={28} className={`mb-2 ${dragOverSide === 'A' ? 'text-blue-400' : filesA.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
+                        <div ref={dropZoneARef} className={`flex-1 border-2 border-dashed rounded-2xl py-40 px-16 min-h-[600px] flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'A' ? 'border-blue-500 bg-blue-900/30' : filesA.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('A')} onDragLeave={handleDragLeave} onDrop={handleDrop('A')} onClick={handleFilesAUpload}>
+                          <FolderOpen size={36} className={`mb-3 ${dragOverSide === 'A' ? 'text-blue-400' : filesA.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
                           <p className={`text-sm font-medium ${dragOverSide === 'A' ? 'text-blue-300' : filesA.length > 0 ? 'text-green-300' : 'text-neutral-400'}`}>{modeLabels.a}</p>
                           <p className="text-xs text-neutral-600 mt-1">{getAcceptedExtensions('A').join(', ')}</p>
                           {filesA.length > 0 && <p className="text-xs text-green-400 mt-2">{filesA.length}件</p>}
                         </div>
 
-                        <div ref={dropZoneBRef} className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'B' ? 'border-green-500 bg-green-900/30' : filesB.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('B')} onDragLeave={handleDragLeave} onDrop={handleDrop('B')} onClick={handleFilesBUpload}>
-                          <FolderOpen size={28} className={`mb-2 ${dragOverSide === 'B' ? 'text-green-400' : filesB.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
+                        <div ref={dropZoneBRef} className={`flex-1 border-2 border-dashed rounded-2xl py-40 px-16 min-h-[600px] flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'B' ? 'border-green-500 bg-green-900/30' : filesB.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('B')} onDragLeave={handleDragLeave} onDrop={handleDrop('B')} onClick={handleFilesBUpload}>
+                          <FolderOpen size={36} className={`mb-3 ${dragOverSide === 'B' ? 'text-green-400' : filesB.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
                           <p className={`text-sm font-medium ${dragOverSide === 'B' ? 'text-green-300' : filesB.length > 0 ? 'text-green-300' : 'text-neutral-400'}`}>{modeLabels.b}</p>
                           <p className="text-xs text-neutral-600 mt-1">{getAcceptedExtensions('B').join(', ')}</p>
                           {filesB.length > 0 && <p className="text-xs text-green-400 mt-2">{filesB.length}件</p>}
@@ -4453,29 +4453,29 @@ export default function MangaDiffDetector() {
                     {compareMode === 'psd-tiff' && (
                       <div
                         ref={dropZoneJsonRef}
-                        className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'json' ? 'border-orange-500 bg-orange-900/30' : cropBounds ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`}
+                        className={`flex-1 border-2 border-dashed rounded-2xl py-40 px-16 min-h-[600px] flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'json' ? 'border-orange-500 bg-orange-900/30' : cropBounds ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`}
                         onDragOver={handleDragOver}
                         onDragEnter={handleDragEnter('json')}
                         onDragLeave={handleDragLeave}
                         onDrop={handleDrop('json')}
                         onClick={() => setIsGDriveBrowserOpen(true)}
                       >
-                        <HardDrive size={28} className={`mb-2 ${dragOverSide === 'json' ? 'text-orange-400' : cropBounds ? 'text-green-400' : 'text-neutral-600'}`} />
+                        <HardDrive size={36} className={`mb-3 ${dragOverSide === 'json' ? 'text-orange-400' : cropBounds ? 'text-green-400' : 'text-neutral-600'}`} />
                         <p className={`text-sm font-medium ${dragOverSide === 'json' ? 'text-orange-300' : cropBounds ? 'text-green-300' : 'text-neutral-400'}`}>Gドライブ</p>
                         <p className="text-xs text-neutral-600 mt-1">.json</p>
                         {cropBounds && <p className="text-xs text-green-400 mt-2">OK</p>}
                       </div>
                     )}
 
-                    <div ref={dropZoneARef} className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'A' ? 'border-blue-500 bg-blue-900/30' : filesA.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('A')} onDragLeave={handleDragLeave} onDrop={handleDrop('A')} onClick={handleFilesAUpload}>
-                      <FolderOpen size={28} className={`mb-2 ${dragOverSide === 'A' ? 'text-blue-400' : filesA.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
+                    <div ref={dropZoneARef} className={`flex-1 border-2 border-dashed rounded-2xl py-40 px-16 min-h-[600px] flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'A' ? 'border-blue-500 bg-blue-900/30' : filesA.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('A')} onDragLeave={handleDragLeave} onDrop={handleDrop('A')} onClick={handleFilesAUpload}>
+                      <FolderOpen size={36} className={`mb-3 ${dragOverSide === 'A' ? 'text-blue-400' : filesA.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
                       <p className={`text-sm font-medium ${dragOverSide === 'A' ? 'text-blue-300' : filesA.length > 0 ? 'text-green-300' : 'text-neutral-400'}`}>{modeLabels.a}</p>
                       <p className="text-xs text-neutral-600 mt-1">{getAcceptedExtensions('A').join(', ')}</p>
                       {filesA.length > 0 && <p className="text-xs text-green-400 mt-2">{filesA.length}件</p>}
                     </div>
 
-                    <div ref={dropZoneBRef} className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'B' ? 'border-green-500 bg-green-900/30' : filesB.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('B')} onDragLeave={handleDragLeave} onDrop={handleDrop('B')} onClick={handleFilesBUpload}>
-                      <FolderOpen size={28} className={`mb-2 ${dragOverSide === 'B' ? 'text-green-400' : filesB.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
+                    <div ref={dropZoneBRef} className={`flex-1 border-2 border-dashed rounded-2xl py-40 px-16 min-h-[600px] flex flex-col items-center justify-center transition-all cursor-pointer ${dragOverSide === 'B' ? 'border-green-500 bg-green-900/30' : filesB.length > 0 ? 'border-green-600 bg-green-900/20' : 'border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/50'}`} onDragOver={handleDragOver} onDragEnter={handleDragEnter('B')} onDragLeave={handleDragLeave} onDrop={handleDrop('B')} onClick={handleFilesBUpload}>
+                      <FolderOpen size={36} className={`mb-3 ${dragOverSide === 'B' ? 'text-green-400' : filesB.length > 0 ? 'text-green-400' : 'text-neutral-600'}`} />
                       <p className={`text-sm font-medium ${dragOverSide === 'B' ? 'text-green-300' : filesB.length > 0 ? 'text-green-300' : 'text-neutral-400'}`}>{modeLabels.b}</p>
                       <p className="text-xs text-neutral-600 mt-1">{getAcceptedExtensions('B').join(', ')}</p>
                       {filesB.length > 0 && <p className="text-xs text-green-400 mt-2">{filesB.length}件</p>}
