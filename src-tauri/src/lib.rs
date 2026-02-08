@@ -3,7 +3,7 @@ use image::{ImageBuffer, Rgba, DynamicImage, GenericImageView};
 use image::imageops::FilterType;
 use psd::Psd;
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -216,15 +216,10 @@ fn open_pdf_in_mojiq(pdf_path: String, page: Option<u32>) -> Result<(), String> 
 
     let mut cmd = std::process::Command::new(&mojiq_path);
 
-    // ページ番号が指定されている場合は引数として追加
-    // 注意: --page とページ番号をPDFパスより前に配置
-    // （MojiQ/Electronが自動追加するオプションの影響を避けるため）
     if let Some(p) = page {
         cmd.arg("--page");
         cmd.arg(p.to_string());
     }
-
-    // PDFパスは最後に追加
     cmd.arg(&pdf_path);
 
     cmd.spawn().map_err(|e| format!("Failed to launch MojiQ: {}", e))?;
@@ -420,6 +415,497 @@ fn list_files_in_folder(path: String, extensions: Vec<String>) -> Result<Vec<Str
     Ok(files)
 }
 
+// ============== 差分計算 ==============
+
+#[derive(Deserialize)]
+struct CropBounds {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+}
+
+#[derive(Serialize, Clone)]
+struct DiffMarker {
+    x: f64,
+    y: f64,
+    radius: f64,
+    count: u32,
+}
+
+#[derive(Serialize)]
+struct DiffSimpleResult {
+    src_a: String,
+    src_b: String,
+    diff_src: String,
+    has_diff: bool,
+    diff_count: u32,
+    markers: Vec<DiffMarker>,
+    image_width: u32,
+    image_height: u32,
+}
+
+#[derive(Serialize)]
+struct DiffHeatmapResult {
+    src_a: String,
+    src_b: String,
+    processed_a: String,
+    diff_src: String,
+    has_diff: bool,
+    diff_probability: f64,
+    high_density_count: u32,
+    markers: Vec<DiffMarker>,
+    image_width: u32,
+    image_height: u32,
+}
+
+// 拡張子でPSD/TIFF/その他を自動判定してデコード
+fn decode_image_file(path: &str) -> Result<DynamicImage, String> {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".psd") {
+        decode_psd_to_image(path)
+    } else {
+        image::open(path).map_err(|e| format!("Failed to open image {}: {}", path, e))
+    }
+}
+
+// PSDファイルをDynamicImageとしてデコード
+fn decode_psd_to_image(path: &str) -> Result<DynamicImage, String> {
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read PSD: {}", e))?;
+    let psd = Psd::from_bytes(&bytes).map_err(|e| format!("Failed to parse PSD: {}", e))?;
+    let width = psd.width();
+    let height = psd.height();
+    let rgba = psd.rgba();
+    let img_buf: ImageBuffer<Rgba<u8>, Vec<u8>> =
+        ImageBuffer::from_raw(width, height, rgba)
+            .ok_or_else(|| "Failed to create image buffer from PSD".to_string())?;
+    Ok(DynamicImage::ImageRgba8(img_buf))
+}
+
+// RGBA画像をbase64 data URLにエンコード
+fn encode_to_data_url(img: &DynamicImage) -> Result<String, String> {
+    let mut png_data = Cursor::new(Vec::new());
+    img.write_to(&mut png_data, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG encode error: {}", e))?;
+    let base64_str = STANDARD.encode(png_data.get_ref());
+    Ok(format!("data:image/png;base64,{}", base64_str))
+}
+
+// RGBAバッファから直接data URLにエンコード（DynamicImage変換なし）
+fn encode_rgba_to_data_url(buf: &[u8], width: u32, height: u32) -> Result<String, String> {
+    let img: ImageBuffer<Rgba<u8>, &[u8]> =
+        ImageBuffer::from_raw(width, height, buf)
+            .ok_or_else(|| "Failed to create image buffer".to_string())?;
+    let mut png_data = Cursor::new(Vec::new());
+    img.write_to(&mut png_data, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG encode error: {}", e))?;
+    let base64_str = STANDARD.encode(png_data.get_ref());
+    Ok(format!("data:image/png;base64,{}", base64_str))
+}
+
+struct DiffPixel {
+    x: u32,
+    y: u32,
+}
+
+// ピクセル単位の単純差分計算 (rayon行並列)
+// 返り値: (差分RGBAバッファ, 差分ピクセル数, 差分ピクセル座標リスト)
+fn diff_simple_core(
+    a: &[u8], b: &[u8], width: u32, height: u32, threshold: u8,
+) -> (Vec<u8>, u32, Vec<DiffPixel>) {
+    let threshold = threshold as i16;
+    let row_size = (width as usize) * 4;
+
+    // 行ごとに並列処理
+    let rows: Vec<(Vec<u8>, u32, Vec<DiffPixel>)> = (0..height)
+        .into_par_iter()
+        .map(|y| {
+            let offset = (y as usize) * row_size;
+            let row_a = &a[offset..offset + row_size];
+            let row_b = &b[offset..offset + row_size];
+            let mut row_buf = vec![0u8; row_size];
+            let mut count = 0u32;
+            let mut pixels = Vec::new();
+
+            for x in 0..width as usize {
+                let i = x * 4;
+                let dr = (row_a[i] as i16 - row_b[i] as i16).abs();
+                let dg = (row_a[i + 1] as i16 - row_b[i + 1] as i16).abs();
+                let db = (row_a[i + 2] as i16 - row_b[i + 2] as i16).abs();
+
+                if dr > threshold || dg > threshold || db > threshold {
+                    row_buf[i] = 255;     // R
+                    row_buf[i + 1] = 0;   // G
+                    row_buf[i + 2] = 0;   // B
+                    row_buf[i + 3] = 255; // A
+                    count += 1;
+                    pixels.push(DiffPixel { x: x as u32, y });
+                } else {
+                    // 黒背景（alpha=255）
+                    row_buf[i + 3] = 255;
+                }
+            }
+            (row_buf, count, pixels)
+        })
+        .collect();
+
+    let total_size = (width as usize) * (height as usize) * 4;
+    let mut diff_buf = vec![0u8; total_size];
+    let mut total_count = 0u32;
+    let mut all_pixels = Vec::new();
+
+    for (y, (row_buf, count, pixels)) in rows.into_iter().enumerate() {
+        let offset = y * row_size;
+        diff_buf[offset..offset + row_size].copy_from_slice(&row_buf);
+        total_count += count;
+        all_pixels.extend(pixels);
+    }
+
+    (diff_buf, total_count, all_pixels)
+}
+
+// ヒートマップ差分計算（積分画像→密度マップ→着色）
+fn diff_heatmap_core(
+    a: &[u8], b: &[u8], width: u32, height: u32, threshold: u8,
+) -> (Vec<u8>, u32, Vec<DiffPixel>) {
+    let w = width as usize;
+    let h = height as usize;
+    let threshold = threshold as i16;
+
+    // Phase 1: diffMask作成（rayon並列）
+    let diff_mask: Vec<u8> = (0..h)
+        .into_par_iter()
+        .flat_map(|y| {
+            let offset = y * w * 4;
+            (0..w).map(move |x| {
+                let i = offset + x * 4;
+                let dr = (a[i] as i16 - b[i] as i16).abs();
+                let dg = (a[i + 1] as i16 - b[i + 1] as i16).abs();
+                let db = (a[i + 2] as i16 - b[i + 2] as i16).abs();
+                if dr > threshold || dg > threshold || db > threshold { 1u8 } else { 0u8 }
+            }).collect::<Vec<_>>()
+        })
+        .collect();
+
+    // Phase 2: 積分画像（sequential - データ依存あり）
+    let iw = w + 1;
+    let ih = h + 1;
+    let mut integral = vec![0f32; iw * ih];
+    for y in 0..h {
+        for x in 0..w {
+            let idx = (y + 1) * iw + (x + 1);
+            integral[idx] = diff_mask[y * w + x] as f32
+                + integral[idx - 1]
+                + integral[idx - iw]
+                - integral[idx - iw - 1];
+        }
+    }
+
+    // Phase 3: 密度マップ（rayon並列 - integralは読み取り専用）
+    let radius: i32 = 15;
+    let density_and_max: Vec<(f32, f32)> = (0..h)
+        .into_par_iter()
+        .map(|y| {
+            let mut row_max = 0f32;
+            let row: Vec<f32> = (0..w).map(|x| {
+                let x1 = (x as i32 - radius).max(0) as usize;
+                let y1 = (y as i32 - radius).max(0) as usize;
+                let x2 = ((x as i32 + radius) as usize).min(w - 1);
+                let y2 = ((y as i32 + radius) as usize).min(h - 1);
+                let area = ((x2 - x1 + 1) * (y2 - y1 + 1)) as f32;
+                let sum = integral[(y2 + 1) * iw + (x2 + 1)]
+                    - integral[y1 * iw + (x2 + 1)]
+                    - integral[(y2 + 1) * iw + x1]
+                    + integral[y1 * iw + x1];
+                let d = sum / area;
+                if d > row_max { row_max = d; }
+                d
+            }).collect();
+            // rowとrow_maxをタプルで返す（後でflatten）
+            row.into_iter().map(move |d| (d, row_max)).collect::<Vec<_>>()
+        })
+        .flatten()
+        .collect();
+
+    // maxDensityを求める
+    let max_density = density_and_max.iter().map(|(_, m)| *m).fold(0f32, f32::max);
+
+    // Phase 4: ヒートマップ着色 + 高密度ピクセル収集（rayon並列）
+    let density_threshold = 0.05f32;
+    let rows: Vec<(Vec<u8>, u32, Vec<DiffPixel>)> = (0..h)
+        .into_par_iter()
+        .map(|y| {
+            let row_size = w * 4;
+            let mut row_buf = vec![0u8; row_size];
+            let mut high_count = 0u32;
+            let mut high_pixels = Vec::new();
+
+            for x in 0..w {
+                let pixel_idx = y * w + x;
+                let di = x * 4;
+                let (density, _) = density_and_max[pixel_idx];
+                let normalized = if max_density > 0.0 { density / max_density } else { 0.0 };
+
+                if diff_mask[pixel_idx] == 1 && density > density_threshold {
+                    let (r, g, b) = if normalized < 0.3 {
+                        (0u8, (normalized / 0.3 * 200.0) as u8, 200u8)
+                    } else if normalized < 0.6 {
+                        let t = (normalized - 0.3) / 0.3;
+                        ((t * 255.0) as u8, (200.0 + t * 55.0) as u8, ((1.0 - t) * 200.0) as u8)
+                    } else {
+                        let t = (normalized - 0.6) / 0.4;
+                        high_count += 1;
+                        high_pixels.push(DiffPixel { x: x as u32, y: y as u32 });
+                        (255u8, ((1.0 - t) * 255.0) as u8, 0u8)
+                    };
+                    row_buf[di] = r;
+                    row_buf[di + 1] = g;
+                    row_buf[di + 2] = b;
+                    row_buf[di + 3] = 255;
+                } else {
+                    // 黒背景
+                    row_buf[di + 3] = 255;
+                }
+            }
+            (row_buf, high_count, high_pixels)
+        })
+        .collect();
+
+    let total_size = w * h * 4;
+    let mut heatmap_buf = vec![0u8; total_size];
+    let mut total_high = 0u32;
+    let mut all_high_pixels = Vec::new();
+
+    for (y, (row_buf, count, pixels)) in rows.into_iter().enumerate() {
+        let offset = y * w * 4;
+        heatmap_buf[offset..offset + w * 4].copy_from_slice(&row_buf);
+        total_high += count;
+        all_high_pixels.extend(pixels);
+    }
+
+    (heatmap_buf, total_high, all_high_pixels)
+}
+
+// Union-Findクラスタリング → DiffMarkerリスト
+fn cluster_markers(
+    pixels: &[DiffPixel], grid_size: u32, min_cluster: u32, min_radius: f64,
+) -> Vec<DiffMarker> {
+    if pixels.is_empty() {
+        return Vec::new();
+    }
+
+    // グリッドにピクセルを分配
+    struct GridCell {
+        gx: i32,
+        gy: i32,
+        count: u32,
+        min_x: u32,
+        max_x: u32,
+        min_y: u32,
+        max_y: u32,
+    }
+
+    let mut grid: HashMap<(i32, i32), GridCell> = HashMap::new();
+    for p in pixels {
+        let gx = (p.x / grid_size) as i32;
+        let gy = (p.y / grid_size) as i32;
+        let cell = grid.entry((gx, gy)).or_insert(GridCell {
+            gx, gy, count: 0, min_x: p.x, max_x: p.x, min_y: p.y, max_y: p.y,
+        });
+        cell.count += 1;
+        cell.min_x = cell.min_x.min(p.x);
+        cell.max_x = cell.max_x.max(p.x);
+        cell.min_y = cell.min_y.min(p.y);
+        cell.max_y = cell.max_y.max(p.y);
+    }
+
+    let cells: Vec<GridCell> = grid.into_values().collect();
+    if cells.is_empty() {
+        return Vec::new();
+    }
+
+    // Union-Find
+    let mut parent: Vec<usize> = (0..cells.len()).collect();
+    let find = |parent: &mut Vec<usize>, mut i: usize| -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    };
+
+    for i in 0..cells.len() {
+        for j in (i + 1)..cells.len() {
+            let dx = (cells[i].gx - cells[j].gx).abs();
+            let dy = (cells[i].gy - cells[j].gy).abs();
+            if dx <= 1 && dy <= 1 {
+                let pi = find(&mut parent, i);
+                let pj = find(&mut parent, j);
+                if pi != pj {
+                    parent[pi] = pj;
+                }
+            }
+        }
+    }
+
+    // グループ集約
+    let mut groups: HashMap<usize, (u32, u32, u32, u32, u32)> = HashMap::new(); // minX, maxX, minY, maxY, count
+    for (i, cell) in cells.iter().enumerate() {
+        let root = find(&mut parent, i);
+        let g = groups.entry(root).or_insert((u32::MAX, 0, u32::MAX, 0, 0));
+        g.0 = g.0.min(cell.min_x);
+        g.1 = g.1.max(cell.max_x);
+        g.2 = g.2.min(cell.min_y);
+        g.3 = g.3.max(cell.max_y);
+        g.4 += cell.count;
+    }
+
+    let mut markers: Vec<DiffMarker> = groups.values()
+        .filter(|g| g.4 >= min_cluster)
+        .map(|g| {
+            let cx = (g.0 as f64 + g.1 as f64) / 2.0;
+            let cy = (g.2 as f64 + g.3 as f64) / 2.0;
+            let radius_x = (g.1 as f64 - g.0 as f64) / 2.0 + if min_radius > 200.0 { 100.0 } else { 60.0 };
+            let radius_y = (g.3 as f64 - g.2 as f64) / 2.0 + if min_radius > 200.0 { 100.0 } else { 60.0 };
+            let marker_radius = min_radius.max(radius_x.max(radius_y));
+            DiffMarker { x: cx, y: cy, radius: marker_radius, count: g.4 }
+        })
+        .collect();
+
+    markers.sort_by(|a, b| b.count.cmp(&a.count));
+    markers
+}
+
+// tiff-tiff / psd-psd 用の差分計算
+#[tauri::command]
+fn compute_diff_simple(
+    path_a: String, path_b: String, threshold: u8,
+) -> Result<DiffSimpleResult, String> {
+    // 2ファイル並列デコード
+    let (img_a, img_b) = rayon::join(
+        || decode_image_file(&path_a),
+        || decode_image_file(&path_b),
+    );
+    let img_a = img_a?;
+    let img_b = img_b?;
+
+    let (wa, ha) = img_a.dimensions();
+    let (wb, hb) = img_b.dimensions();
+    let width = wa.max(wb);
+    let height = ha.max(hb);
+
+    // 必要ならリサイズ
+    let img_a = if wa != width || ha != height {
+        img_a.resize_exact(width, height, FilterType::Triangle)
+    } else {
+        img_a
+    };
+    let img_b = if wb != width || hb != height {
+        img_b.resize_exact(width, height, FilterType::Triangle)
+    } else {
+        img_b
+    };
+
+    let rgba_a = img_a.to_rgba8();
+    let rgba_b = img_b.to_rgba8();
+
+    // 差分計算
+    let (diff_buf, diff_count, diff_pixels) =
+        diff_simple_core(rgba_a.as_raw(), rgba_b.as_raw(), width, height, threshold);
+
+    // マーカークラスタリング
+    let markers = cluster_markers(&diff_pixels, 200, 1, 300.0);
+
+    // 3画像を並列エンコード
+    let (src_a_result, (src_b_result, diff_result)) = rayon::join(
+        || encode_to_data_url(&img_a),
+        || rayon::join(
+            || encode_to_data_url(&img_b),
+            || encode_rgba_to_data_url(&diff_buf, width, height),
+        ),
+    );
+
+    Ok(DiffSimpleResult {
+        src_a: src_a_result?,
+        src_b: src_b_result?,
+        diff_src: diff_result?,
+        has_diff: diff_count > 0,
+        diff_count,
+        markers,
+        image_width: width,
+        image_height: height,
+    })
+}
+
+// psd-tiff 用のヒートマップ差分計算
+#[tauri::command]
+fn compute_diff_heatmap(
+    psd_path: String, tiff_path: String, crop_bounds: CropBounds, threshold: u8,
+) -> Result<DiffHeatmapResult, String> {
+    // 並列デコード
+    let (psd_result, tiff_result) = rayon::join(
+        || decode_psd_to_image(&psd_path),
+        || image::open(&tiff_path).map_err(|e| format!("Failed to open TIFF: {}", e)),
+    );
+    let psd_img = psd_result?;
+    let tiff_img = tiff_result?;
+
+    let (tiff_w, tiff_h) = tiff_img.dimensions();
+
+    // PSDをクロップ
+    let crop_w = crop_bounds.right - crop_bounds.left;
+    let crop_h = crop_bounds.bottom - crop_bounds.top;
+    let cropped = psd_img.crop_imm(crop_bounds.left, crop_bounds.top, crop_w, crop_h);
+
+    // TIFFサイズにリサイズ（Nearest = imageSmoothingEnabled=false 相当）
+    let processed_psd = cropped.resize_exact(tiff_w, tiff_h, FilterType::Nearest);
+
+    let rgba_a = processed_psd.to_rgba8();
+    let rgba_b = tiff_img.to_rgba8();
+
+    // ヒートマップ差分計算
+    let (heatmap_buf, high_density_count, high_pixels) =
+        diff_heatmap_core(rgba_a.as_raw(), rgba_b.as_raw(), tiff_w, tiff_h, threshold);
+
+    // マーカークラスタリング (gridSize=250, minCluster=20, minRadius=80)
+    let markers = cluster_markers(&high_pixels, 250, 20, 80.0);
+
+    // diffProbability計算
+    let diff_probability = if high_density_count > 0 {
+        let total_pixels = (tiff_w as f64) * (tiff_h as f64);
+        let base_prob = 70.0;
+        let additional = (high_density_count as f64 / total_pixels * 50000.0).min(30.0);
+        ((base_prob + additional) * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    // 4画像を並列エンコード
+    let ((src_a_result, src_b_result), (processed_a_result, diff_result)) = rayon::join(
+        || rayon::join(
+            || encode_to_data_url(&psd_img),
+            || encode_to_data_url(&tiff_img),
+        ),
+        || rayon::join(
+            || encode_to_data_url(&processed_psd),
+            || encode_rgba_to_data_url(&heatmap_buf, tiff_w, tiff_h),
+        ),
+    );
+
+    Ok(DiffHeatmapResult {
+        src_a: src_a_result?,
+        src_b: src_b_result?,
+        processed_a: processed_a_result?,
+        diff_src: diff_result?,
+        has_diff: high_density_count > 0,
+        diff_probability,
+        high_density_count,
+        markers,
+        image_width: tiff_w,
+        image_height: tiff_h,
+    })
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -447,7 +933,9 @@ pub fn run() {
             preload_images,
             clear_image_cache,
             list_files_in_folder,
-            open_pdf_in_mojiq
+            open_pdf_in_mojiq,
+            compute_diff_simple,
+            compute_diff_heatmap
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
